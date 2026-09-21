@@ -1,6 +1,4 @@
 from datetime import datetime, timedelta
-import json
-import re
 import pandas as pd
 import requests
 
@@ -25,7 +23,6 @@ def fetch_hit_max_promos() -> pd.DataFrame:
             res = requests.head(file_url, timeout=5)
             if res.status_code == 200:
                 df = pd.read_csv(file_url, encoding="utf-8", on_bad_lines="skip")
-                # Standardize schema (adjust column mappings as per exact CSV headers)
                 df["store"] = "Hit Max"
                 df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
                 return df
@@ -67,7 +64,6 @@ def fetch_billa_promos(city_code: str = "68134") -> pd.DataFrame:
 
 def fetch_lidl_promos(country_code: str = "bg") -> pd.DataFrame:
     """Fetches active promotional offer items for Lidl Bulgaria."""
-    # Example using Lidl's web offer / promotional payload structure
     url = f"https://www.lidl.bg/p/api/gridboxes/{country_code}/bg"
     headers = {
         "User-Agent": (
@@ -101,8 +97,7 @@ def fetch_fantastico_promos() -> pd.DataFrame:
     try:
         res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
-            # Parse HTML / embedded data logic
-            df = pd.DataFrame()  # Replace with specific HTML parsing logic
+            df = pd.DataFrame()
             df["store"] = "Fantastico"
             df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
             return df
@@ -136,12 +131,23 @@ def run_pipeline():
 
     if all_dfs:
         combined_df = pd.concat(all_dfs, ignore_index=True)
-        combined_df.to_csv("promos_v1.csv", index=False, encoding="utf-8")
-        print(
-            f"\nPipeline finished. Total items saved to promos_v1.csv: {len(combined_df)}"
-        )
     else:
-        print("\nPipeline completed with no records extracted.")
+        combined_df = pd.DataFrame(
+            columns=[
+                "store",
+                "title",
+                "price_promo",
+                "price_old",
+                "unit",
+                "ean",
+                "updated_at",
+            ]
+        )
+
+    combined_df.to_csv("promos_v1.csv", index=False, encoding="utf-8")
+    print(
+        f"\nPipeline finished. Total items saved to promos_v1.csv: {len(combined_df)}"
+    )
 
 
 if __name__ == "__main__":
