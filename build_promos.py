@@ -21,45 +21,24 @@ def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------------------
-# 1. LIDL (Filtered)
+# 1. LIDL (Retain All Columns, Filter Store 197)
 # ------------------------------------------------------------------------------
 def fetch_lidl_promos() -> pd.DataFrame:
   url = "https://www.lidl.bg/explore/assets/webPriceData/bg/ExportFirstList.xlsx"
   try:
     res = requests.get(url, headers=HEADERS, timeout=15)
     if res.status_code == 200 and len(res.content) > 100:
-      excel_data = io.BytesIO(res.content)
-      df = pd.read_excel(excel_data)
+      df = pd.read_excel(io.BytesIO(res.content))
       df = clean_columns(df)
-      print("[Lidl] Raw columns found:", df.columns.tolist()[:10])
 
-      # Find store location column dynamically
       store_col = next(
-          (c for c in df.columns if "търговски" in c.lower() or "обект" in c.lower()),
-          None,
-      )
-      title_col = next(
           (
               c
               for c in df.columns
-              if "найм" in c.lower() or "продукт" in c.lower()
+              if "търговски" in c.lower() and "обект" in c.lower()
           ),
           None,
       )
-      price_col = next(
-          (c for c in df.columns if "промо" in c.lower() and "цена" in c.lower()),
-          None,
-      )
-      old_price_col = next(
-          (c for c in df.columns if "стар" in c.lower() or "предишн" in c.lower()),
-          None,
-      )
-      unit_col = next(
-          (c for c in df.columns if "мярк" in c.lower() or "unit" in c.lower()),
-          None,
-      )
-      ean_col = next((c for c in df.columns if "ean" in c.lower()), None)
-
       if store_col:
         df = df[
             df[store_col]
@@ -67,15 +46,10 @@ def fetch_lidl_promos() -> pd.DataFrame:
             .str.contains(LIDL_TARGET_STORE, na=False)
         ]
 
-      res_df = pd.DataFrame()
-      res_df["title"] = df[title_col] if title_col else ""
-      res_df["price_promo"] = df[price_col] if price_col else None
-      res_df["price_old"] = df[old_price_col] if old_price_col else None
-      res_df["unit"] = df[unit_col] if unit_col else None
-      res_df["ean"] = df[ean_col] if ean_col else None
-      res_df["store"] = "Lidl"
-      res_df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
-      return res_df
+      df["store"] = "Lidl"
+      df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+      print(f"[Lidl] Filtered rows: {len(df)}, columns: {len(df.columns)}")
+      return df
   except Exception as e:
     print(f"[Lidl] Error: {e}")
 
@@ -83,7 +57,7 @@ def fetch_lidl_promos() -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------------------
-# 2. FANTASTICO (Filtered)
+# 2. FANTASTICO (Retain All Columns, Filter Store Ф12)
 # ------------------------------------------------------------------------------
 def fetch_fantastico_promos() -> pd.DataFrame:
   for days_back in range(3):
@@ -94,41 +68,17 @@ def fetch_fantastico_promos() -> pd.DataFrame:
     try:
       res = requests.get(file_url, headers=HEADERS, timeout=10)
       if res.status_code == 200 and len(res.content) > 50:
-        csv_data = io.StringIO(res.text)
-        df = pd.read_csv(csv_data, on_bad_lines="skip")
+        df = pd.read_csv(io.StringIO(res.text), on_bad_lines="skip")
         df = clean_columns(df)
-        print("[Fantastico] Raw columns found:", df.columns.tolist()[:10])
 
         store_col = next(
             (
                 c
                 for c in df.columns
-                if "търговски" in c.lower() or "обект" in c.lower()
+                if "търговски" in c.lower() and "обект" in c.lower()
             ),
             None,
         )
-        title_col = next(
-            (
-                c
-                for c in df.columns
-                if "найм" in c.lower() or "продукт" in c.lower()
-            ),
-            None,
-        )
-        price_col = next(
-            (c for c in df.columns if "промо" in c.lower() and "цена" in c.lower()),
-            None,
-        )
-        old_price_col = next(
-            (c for c in df.columns if "стар" in c.lower() or "предишн" in c.lower()),
-            None,
-        )
-        unit_col = next(
-            (c for c in df.columns if "мярк" in c.lower() or "unit" in c.lower()),
-            None,
-        )
-        ean_col = next((c for c in df.columns if "ean" in c.lower()), None)
-
         if store_col:
           df = df[
               df[store_col]
@@ -136,15 +86,13 @@ def fetch_fantastico_promos() -> pd.DataFrame:
               .str.contains(FANTASTICO_TARGET_STORE, na=False)
           ]
 
-        res_df = pd.DataFrame()
-        res_df["title"] = df[title_col] if title_col else ""
-        res_df["price_promo"] = df[price_col] if price_col else None
-        res_df["price_old"] = df[old_price_col] if old_price_col else None
-        res_df["unit"] = df[unit_col] if unit_col else None
-        res_df["ean"] = df[ean_col] if ean_col else None
-        res_df["store"] = "Fantastico"
-        res_df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
-        return res_df
+        df["store"] = "Fantastico"
+        df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+        print(
+            "[Fantastico] Filtered rows:"
+            f" {len(df)}, columns: {len(df.columns)}"
+        )
+        return df
     except Exception as e:
       print(f"[Fantastico] Error for {target_date}: {e}")
 
@@ -155,7 +103,7 @@ def fetch_fantastico_promos() -> pd.DataFrame:
 # PIPELINE RUNNER
 # ------------------------------------------------------------------------------
 def run_pipeline():
-  print("Starting Single-Store Promo Pipeline...\n")
+  print("Starting Full-Data Single-Store Pipeline...\n")
   scrapers = [
       ("Lidl", fetch_lidl_promos),
       ("Fantastico", fetch_fantastico_promos),
@@ -167,33 +115,20 @@ def run_pipeline():
       df = scraper_fn()
       if not df.empty:
         all_dfs.append(df)
-        print(f"Result: {len(df)} items retrieved for {name}.")
-      else:
-        print(f"Result: 0 items returned for {name}.")
     except Exception as err:
       print(f"Error executing {name}: {err}")
 
-  desired_cols = [
-      "store",
-      "title",
-      "price_promo",
-      "price_old",
-      "unit",
-      "ean",
-      "updated_at",
-  ]
   if all_dfs:
-    combined_df = pd.concat(all_dfs, ignore_index=True)
-    existing_cols = [c for c in desired_cols if c in combined_df.columns]
-    combined_df = combined_df[existing_cols]
-    dup_cols = [c for c in ["store", "title", "price_promo"] if c in combined_df.columns]
-    if dup_cols:
-      combined_df = combined_df.drop_duplicates(subset=dup_cols)
+    # Concatenate union of all raw columns across both files
+    combined_df = pd.concat(all_dfs, ignore_index=True, sort=False)
   else:
-    combined_df = pd.DataFrame(columns=desired_cols)
+    combined_df = pd.DataFrame()
 
   combined_df.to_csv("promos_v1.csv", index=False, encoding="utf-8")
-  print(f"\nPipeline finished. Saved {len(combined_df)} rows to promos_v1.csv")
+  print(
+      f"\nPipeline finished. Total rows saved: {len(combined_df)} across"
+      f" {len(combined_df.columns)} columns."
+  )
 
 
 if __name__ == "__main__":
