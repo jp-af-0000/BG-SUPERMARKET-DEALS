@@ -1,45 +1,16 @@
-name: Daily Promo Scraper
-
-on:
-  schedule:
-    - cron: '0 5 * * *'  # Runs daily at 05:00 UTC
-  workflow_dispatch:      # Allows manual trigger
-
-jobs:
-  run-scraper:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write     # Grants write access to push changes
-
-    steps:
-      - name: Checkout repository code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run Scraper Script
-        run: python build_promos.py
-
-      - name: Commit and Push Updated Data
+- name: Commit and Push Updated Data
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Force add promos_v1.csv in case .gitignore blocks CSV files
+          git fetch origin main
+          git rebase origin/main || true
+          
           git add -f promos_v1.csv
           
-          # Commit and explicitly push to main branch
-          if ! git diff --staged --quiet; then
+          if [ -n "$(git status --porcelain)" ]; then
             git commit -m "Auto-update promo data [skip ci]"
             git push origin HEAD:main
           else
-            echo "No changes detected. Skipping commit."
+            echo "No changes detected in promos_v1.csv. Skipping push."
           fi
