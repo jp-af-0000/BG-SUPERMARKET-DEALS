@@ -1,7 +1,5 @@
 from datetime import datetime, timedelta
-import json
-import re
-from bs4 import BeautifulSoup
+import io
 import pandas as pd
 import requests
 
@@ -10,184 +8,80 @@ HEADERS = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+    "Accept": "*/*",
 }
 
 # ------------------------------------------------------------------------------
-# 1. HIT MAX SCRAPER
-# ------------------------------------------------------------------------------
-
-
-def fetch_hit_max_promos() -> pd.DataFrame:
-    """Fetches Hit Max daily promotional CSV files."""
-    base_url = "https://www.hit-max.bg/wp-content/uploads/Prices/000000000/"
-
-    # Look back up to 5 days to handle weekends or delayed uploads
-    for days_back in range(5):
-        target_date = (datetime.now() - timedelta(days=days_back)).strftime(
-            "%Y%m%d"
-        )
-        file_name = f"PRM_000000000_{target_date}.csv"
-        file_url = f"{base_url}{file_name}"
-
-        try:
-            res = requests.get(file_url, headers=HEADERS, timeout=10)
-            if res.status_code == 200 and len(res.content) > 100:
-                print(f"[Hit Max] Successfully downloaded {file_name}")
-                df = pd.read_csv(file_url, encoding="utf-8", on_bad_lines="skip")
-
-                # Normalize common Hit Max CSV column names
-                rename_map = {
-                    "Наименование": "title",
-                    "Промо цена": "price_promo",
-                    "Редовна цена": "price_old",
-                    "Мярка": "unit",
-                    "EAN": "ean",
-                }
-                df = df.rename(columns=rename_map)
-                df["store"] = "Hit Max"
-                df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
-                return df
-        except Exception as e:
-            print(f"[Hit Max] Failed attempt for {target_date}: {e}")
-
-    print("[Hit Max] 0 records fetched.")
-    return pd.DataFrame()
-
-
-# ------------------------------------------------------------------------------
-# 2. BILLA SCRAPER
-# ------------------------------------------------------------------------------
-
-
-def fetch_billa_promos(city_code: str = "68134") -> pd.DataFrame:
-    """Fetches active promo items from Billa Service System backend (Sofia = 68134)."""
-    url = f"https://euro.b-ss.eu/data.php?city={city_code}"
-
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            if data and isinstance(data, list):
-                df = pd.DataFrame(data)
-
-                # Normalize keys if JSON returns standard field names
-                col_map = {
-                    "name": "title",
-                    "price": "price_promo",
-                    "old_price": "price_old",
-                }
-                df = df.rename(columns=col_map)
-                df["store"] = "Billa"
-                df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
-                return df
-    except Exception as e:
-        print(f"[Billa] Error fetching data: {e}")
-
-    print("[Billa] 0 records fetched.")
-    return pd.DataFrame()
-
-
-# ------------------------------------------------------------------------------
-# 3. LIDL SCRAPER
+# 1. LIDL (Direct Excel Export File)
 # ------------------------------------------------------------------------------
 
 
 def fetch_lidl_promos() -> pd.DataFrame:
-    """Scrapes Lidl Bulgaria active weekly promotional offers."""
-    url = "https://www.lidl.bg/c/promocii/a1000"
+    """Fetches Lidl daily promotional items directly from their official Excel export."""
+    url = "https://www.lidl.bg/explore/assets/webPriceData/bg/ExportFirstList.xlsx"
 
     try:
         res = requests.get(url, headers=HEADERS, timeout=15)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, "html.parser")
-            items = []
+        if res.status_code == 200 and len(res.content) > 100:
+            print("[Lidl] Downloaded ExportFirstList.xlsx")
+            excel_data = io.BytesIO(res.content)
+            df = pd.read_excel(excel_data)
 
-            # Find product grid cards
-            grid_items = soup.find_all(
-                "article", class_=re.compile("product|grid-box")
-            ) or soup.find_all("div", class_=re.compile("product"))
-
-            for card in grid_items:
-                title_elem = card.find(
-                    ["h2", "h3", "strong"], class_=re.compile("title|heading")
-                )
-                price_elem = card.find(
-                    "span", class_=re.compile("price|current")
-                )
-
-                if title_elem and price_elem:
-                    title = title_elem.get_text(strip=True)
-                    price = price_elem.get_text(strip=True)
-
-                    items.append(
-                        {
-                            "store": "Lidl",
-                            "title": title,
-                            "price_promo": price,
-                            "price_old": None,
-                            "unit": None,
-                            "ean": None,
-                            "updated_at": datetime.now().strftime("%Y-%m-%d"),
-                        }
-                    )
-
-            if items:
-                return pd.DataFrame(items)
-
+            # Map typical KZP Excel columns
+            col_map = {
+                "Наименование на артикула": "title",
+                "Продукт": "title",
+                "Промоционална цена": "price_promo",
+                "Промо цена": "price_promo",
+                "Предишна цена": "price_old",
+                "Стара цена": "price_old",
+                "Мярка": "unit",
+                "EAN": "ean",
+            }
+            df = df.rename(columns=col_map)
+            df["store"] = "Lidl"
+            df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+            return df
     except Exception as e:
-        print(f"[Lidl] Scraper error: {e}")
+        print(f"[Lidl] Excel fetch failed: {e}")
 
     print("[Lidl] 0 records fetched.")
     return pd.DataFrame()
 
 
 # ------------------------------------------------------------------------------
-# 4. FANTASTICO SCRAPER
+# 2. FANTASTICO (Direct KZP Compliance CSV)
 # ------------------------------------------------------------------------------
 
 
 def fetch_fantastico_promos() -> pd.DataFrame:
-    """Scrapes promo offers from Fantastico's public promotions page."""
-    url = "https://www.fantastico.bg/promotions"
+    """Fetches Fantastico daily promo CSV directly from public KZP endpoint."""
+    for days_back in range(3):
+        target_date = (datetime.now() - timedelta(days=days_back)).strftime(
+            "%Y-%m-%d"
+        )
+        file_url = f"http://fantastico.bg/files/kzp/fantastico.csv?d={target_date}"
 
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=15)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, "html.parser")
-            items = []
+        try:
+            res = requests.get(file_url, headers=HEADERS, timeout=10)
+            if res.status_code == 200 and len(res.content) > 50:
+                print(f"[Fantastico] Fetched CSV for {target_date}")
+                csv_data = io.StringIO(res.text)
+                df = pd.read_csv(csv_data, on_bad_lines="skip")
 
-            # Extract promo product cards
-            cards = soup.find_all(
-                "div", class_=re.compile("product|promo|item")
-            )
-
-            for card in cards:
-                title_elem = card.find(["div", "span", "p"], class_="title")
-                price_elem = card.find(["div", "span"], class_="price")
-
-                if title_elem and price_elem:
-                    title = title_elem.get_text(strip=True)
-                    price = price_elem.get_text(strip=True)
-
-                    items.append(
-                        {
-                            "store": "Fantastico",
-                            "title": title,
-                            "price_promo": price,
-                            "price_old": None,
-                            "unit": None,
-                            "ean": None,
-                            "updated_at": datetime.now().strftime("%Y-%m-%d"),
-                        }
-                    )
-
-            if items:
-                return pd.DataFrame(items)
-
-    except Exception as e:
-        print(f"[Fantastico] Scraper error: {e}")
+                col_map = {
+                    "Продукт": "title",
+                    "Наименование": "title",
+                    "Промо цена": "price_promo",
+                    "Стара цена": "price_old",
+                    "Мярка": "unit",
+                }
+                df = df.rename(columns=col_map)
+                df["store"] = "Fantastico"
+                df["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+                return df
+        except Exception as e:
+            print(f"[Fantastico] Failed for {target_date}: {e}")
 
     print("[Fantastico] 0 records fetched.")
     return pd.DataFrame()
@@ -199,11 +93,9 @@ def fetch_fantastico_promos() -> pd.DataFrame:
 
 
 def run_pipeline():
-    print("Starting V1 Supermarket Promo Extraction pipeline...\n")
+    print("Starting Direct Data File Pipeline (Lidl + Fantastico)...\n")
 
     scrapers = [
-        ("Hit Max", fetch_hit_max_promos),
-        ("Billa", fetch_billa_promos),
         ("Lidl", fetch_lidl_promos),
         ("Fantastico", fetch_fantastico_promos),
     ]
@@ -212,17 +104,20 @@ def run_pipeline():
 
     for name, scraper_fn in scrapers:
         print(f"--- Fetching {name} ---")
-        df = scraper_fn()
-        if not df.empty:
-            all_dfs.append(df)
-            print(f"Result: {len(df)} items retrieved from {name}.\n")
-        else:
-            print(f"Result: 0 items returned for {name}.\n")
+        try:
+            df = scraper_fn()
+            if not df.empty:
+                all_dfs.append(df)
+                print(f"Result: {len(df)} items retrieved from {name}.\n")
+            else:
+                print(f"Result: 0 items returned for {name}.\n")
+        except Exception as err:
+            print(f"Error fetching {name}: {err}\n")
 
     if all_dfs:
         combined_df = pd.concat(all_dfs, ignore_index=True)
     else:
-        print("Warning: No records extracted. Creating schema-only CSV.")
+        print("Warning: No records extracted. Creating header-only CSV.")
         combined_df = pd.DataFrame(
             columns=[
                 "store",
@@ -235,9 +130,8 @@ def run_pipeline():
             ]
         )
 
-    # Force write CSV output
     combined_df.to_csv("promos_v1.csv", index=False, encoding="utf-8")
-    print(f"Pipeline finished. Total rows written to promos_v1.csv: {len(combined_df)}")
+    print(f"Pipeline finished. Saved {len(combined_df)} rows to promos_v1.csv")
 
 
 if __name__ == "__main__":
