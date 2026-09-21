@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: run-scraper-main
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   scrape:
@@ -20,6 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: true
 
@@ -40,34 +41,26 @@ jobs:
       - name: Commit and Push Updated Data
         shell: bash
         run: |
-          set -e
+          set -euxo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # Always synchronize with latest main first
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+
+          # Rebuild CSV from latest state
+          python build_promos.py
+
           git add promos_v1.csv
 
           if git diff --cached --quiet; then
-            echo "No changes detected in promos_v1.csv"
+            echo "No changes detected."
             exit 0
           fi
 
           git commit -m "Auto-update promo data [skip ci]"
 
-          for attempt in 1 2 3; do
-            echo "Push attempt $attempt"
-
-            git fetch origin main
-            git rebase origin/main
-
-            if git push origin HEAD:main; then
-              echo "Push succeeded"
-              exit 0
-            fi
-
-            echo "Push rejected. Retrying..."
-            sleep 5
-          done
-
-          echo "Failed after 3 attempts"
-          exit 1
+          git push origin main
