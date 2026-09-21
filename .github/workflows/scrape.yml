@@ -9,7 +9,7 @@ jobs:
   run-scraper:
     runs-on: ubuntu-latest
     permissions:
-      contents: write     # Grants github-actions[bot] write access to push changes
+      contents: write     # Grants write access to push changes
 
     steps:
       - name: Checkout repository code
@@ -32,9 +32,14 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -f promos_v1.csv ]; then
-            git add promos_v1.csv
-            git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update promo data [skip ci]" && git push)
+          
+          # Force add promos_v1.csv in case .gitignore blocks CSV files
+          git add -f promos_v1.csv
+          
+          # Commit and explicitly push to main branch
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-update promo data [skip ci]"
+            git push origin HEAD:main
           else
-            echo "promos_v1.csv does not exist. Skipping commit step."
+            echo "No changes detected. Skipping commit."
           fi
